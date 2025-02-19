@@ -33,19 +33,20 @@ const PaymentModal = ({ isOpen, onClose, amount, onSuccess }) => {
         setError("Please upload a screenshot and enter the transaction ID.");
         return;
       }
+      console.log(token)
 
       setIsSubmitting(true);
 
       // Create form data to upload file
       const formData = new FormData();
       formData.append('transactionId', transactionId);
-      formData.append('amount', amount);
+      formData.append('amount', amount.toString());
       formData.append('screenshot', screenshot);
 
       // Make API call
       const response = await axios.post(
         `${url}/api/payments/submit`, 
-        formData, 
+        formData,
         {
           headers: {
             'Content-Type': 'multipart/form-data',

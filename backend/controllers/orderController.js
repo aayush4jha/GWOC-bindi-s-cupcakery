@@ -1,42 +1,52 @@
-import { response } from "express";
-import orderModel from "../models/orderModel.js";
-import userModel from "../models/userModel.js";
+import Order from '../models/orderModel.js';
+import jwt from 'jsonwebtoken';
 
+export const placeOrder = async (req, res) => {
+  try {
+    console.log("Received order request:", req.body);
+    console.log("User from auth middleware:", req.user);
 
-// placing user order from frontend
+    const { address, items, amount } = req.body;
 
-const placeOrder = async (req,res)=>{
-   
-    try {
-        const newOrder = new orderModel({
-            userId:req.body.userId,
-            items:req.body.items,
-            amount:req.body.amount,
-            address:req.body.address
-        })
+    // Create new order with userId from authenticated user
+    const order = new Order({
+      userId: req.user._id, // From auth middleware
+      address,
+      items,
+      amount
+    });
 
-        await newOrder.save();
+    await order.save();
 
-        await userModel.findByIdAndUpdate(req.body.userId,{cartData:{}});
+    res.status(201).json({
+      success: true,
+      message: "Order placed successfully",
+      order
+    });
+  } catch (error) {
+    console.error("Order placement error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error placing order",
+      error: error.message
+    });
+  }
+};
 
+export const getOrders = async (req, res) => {
+  try {
+    const orders = await Order.find({ userId: req.user._id })
+      .sort({ createdAt: -1 });
 
-    } catch (error) {
-        console.log(error)
-        res.json({success:false,message:"Error"})
-        
-    }
-}
-
-// user orders for frontend
-
-const userOrders = async (req,res)=>{
-   try {
-    const orders = await orderModel.find({userId:req.body.userId});
-    response.json({success:true,data:orders})
-   } catch (error) {
-    console.log(error);
-    res.json({success:false , message:"Error"})
-   }
-}
-
-export {placeOrder,userOrders};
+    res.json({
+      success: true,
+      orders
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error fetching orders",
+      error: error.message
+    });
+  }
+};

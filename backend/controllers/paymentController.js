@@ -1,34 +1,29 @@
 import Payment from '../models/paymentModel.js';
 import { getFileById, deleteFileById } from '../config/gridfsConfig.js';
+import mongoose from 'mongoose';
+import uploadMiddleware from '../middleware/uploadMiddleware.js';
 
 export const submitPayment = async (req, res) => {
+  console.log("Dddddbbbbb")
+  console.log(req.body);
   try {
-    // Get user ID from token
-    const userId = req.user._id;
-
-    if (!req.body.transactionId || !req.file) {
+    const { transactionId, amount } = req.body;
+    
+    if (!transactionId || !amount || !req.file) {
       return res.status(400).json({
         success: false,
-        message: 'Transaction ID and payment screenshot are required'
+        message: 'Missing required fields'
       });
     }
 
-    // Check if transaction ID already exists
-    const existingPayment = await Payment.findOne({ transactionId: req.body.transactionId });
-    if (existingPayment) {
-      return res.status(400).json({
-        success: false,
-        message: 'This transaction ID has already been used'
-      });
-    }
-
-    // Create payment record with the GridFS file ID
+    // Create new payment record
     const payment = new Payment({
-      userId,
-      amount: req.body.amount,
-      transactionId: req.body.transactionId,
-      screenshotId: req.file.id, // GridFS file ID
-      paymentMethod: 'UPI',
+      userId: req.user._id,
+      amount: parseFloat(amount),
+      transactionId,
+      screenshotId: req.file.id,
+      status: 'pending',
+      paymentMethod: 'UPI'
     });
 
     await payment.save();
@@ -36,13 +31,52 @@ export const submitPayment = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Payment submitted successfully',
-      payment
+      payment: {
+        ...payment.toObject(),
+        screenshot: `/api/payments/${payment._id}/screenshot`
+      }
     });
   } catch (error) {
     console.error('Payment submission error:', error);
     res.status(500).json({
       success: false,
-      message: 'An error occurred while processing your payment',
+      message: 'Error submitting payment',
+      error: error.message
+    });
+  }
+};
+
+export const postPayment = async (req, res) => {
+  try {
+    const { userId, amount, currency, status } = req.body;
+
+    if (!userId || !amount || !currency || !status) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields'
+      });
+    }
+
+    const newPayment = new Payment({
+      userId,
+      amount: parseFloat(amount),
+      currency,
+      status,
+      date: new Date()
+    });
+
+    await newPayment.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Payment recorded successfully',
+      payment: newPayment
+    });
+  } catch (error) {
+    console.error('Error posting payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error saving payment',
       error: error.message
     });
   }
@@ -50,18 +84,23 @@ export const submitPayment = async (req, res) => {
 
 export const getPayments = async (req, res) => {
   try {
-    const userId = req.user._id;
-    const payments = await Payment.find({ userId });
+    const query = req.user.role === 'admin' ? {} : { userId: req.user._id };
     
-    res.status(200).json({
+    const payments = await Payment.find(query)
+      .populate('userId', 'name email')
+      .sort({ createdAt: -1 });
+
+    res.json({
       success: true,
-      count: payments.length,
-      payments
+      payments: payments.map(payment => ({
+        ...payment.toObject(),
+        screenshot: `/api/payments/${payment._id}/screenshot`
+      }))
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'An error occurred while fetching payment history',
+      message: 'Error fetching payments',
       error: error.message
     });
   }
@@ -69,8 +108,17 @@ export const getPayments = async (req, res) => {
 
 export const getPaymentById = async (req, res) => {
   try {
-    const payment = await Payment.findById(req.params.id);
+    const query = {
+      _id: req.params.id
+    };
     
+    if (req.user.role !== 'admin') {
+      query.userId = req.user._id;
+    }
+
+    const payment = await Payment.findOne(query)
+      .populate('userId', 'name email');
+
     if (!payment) {
       return res.status(404).json({
         success: false,
@@ -78,22 +126,17 @@ export const getPaymentById = async (req, res) => {
       });
     }
 
-    // Check if the user is authorized to view this payment
-    if (payment.userId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to access this payment'
-      });
-    }
-
-    res.status(200).json({
+    res.json({
       success: true,
-      payment
+      payment: {
+        ...payment.toObject(),
+        screenshot: `/api/payments/${payment._id}/screenshot`
+      }
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'An error occurred while fetching the payment',
+      message: 'Error fetching payment',
       error: error.message
     });
   }
@@ -101,8 +144,11 @@ export const getPaymentById = async (req, res) => {
 
 export const getScreenshot = async (req, res) => {
   try {
-    const payment = await Payment.findById(req.params.id);
-    
+    const payment = await Payment.findOne({
+      _id: req.params.id,
+      ...(req.user.role !== 'admin' ? { userId: req.user._id } : {})
+    });
+
     if (!payment) {
       return res.status(404).json({
         success: false,
@@ -110,53 +156,39 @@ export const getScreenshot = async (req, res) => {
       });
     }
 
-    // Check if the user is authorized to view this payment
-    if (payment.userId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to access this payment'
-      });
-    }
-
-    // Get the file from GridFS
-    const fileBuffer = await getFileById(payment.screenshotId);
+    const file = await getFileById(payment.screenshotId);
     
-    // Set appropriate content type
-    // Note: In a real app, you'd store the mimetype in the DB
     res.set('Content-Type', 'image/jpeg');
-    
-    // Send the file
-    res.send(fileBuffer);
+    res.send(file);
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'An error occurred while fetching the screenshot',
+      message: 'Error fetching screenshot',
       error: error.message
     });
   }
 };
 
-// Admin controller to verify payments
 export const verifyPayment = async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only admins can verify payments'
-      });
-    }
-
-    const { id } = req.params;
     const { status } = req.body;
-
+    
     if (!['verified', 'rejected'].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'Status must be either "verified" or "rejected"'
+        message: 'Invalid status'
       });
     }
 
-    const payment = await Payment.findById(id);
+    const payment = await Payment.findByIdAndUpdate(
+      req.params.id,
+      {
+        status,
+        verifiedAt: status === 'verified' ? new Date() : undefined
+      },
+      { new: true }
+    ).populate('userId', 'name email');
+
     if (!payment) {
       return res.status(404).json({
         success: false,
@@ -164,29 +196,29 @@ export const verifyPayment = async (req, res) => {
       });
     }
 
-    payment.status = status;
-    payment.verifiedAt = new Date();
-    await payment.save();
-
-    res.status(200).json({
+    res.json({
       success: true,
-      message: `Payment ${status} successfully`,
-      payment
+      payment: {
+        ...payment.toObject(),
+        screenshot: `/api/payments/${payment._id}/screenshot`
+      }
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'An error occurred while verifying the payment',
+      message: 'Error verifying payment',
       error: error.message
     });
   }
 };
 
-// Delete payment and associated screenshot
 export const deletePayment = async (req, res) => {
   try {
-    const payment = await Payment.findById(req.params.id);
-    
+    const payment = await Payment.findOne({
+      _id: req.params.id,
+      ...(req.user.role !== 'admin' ? { userId: req.user._id } : {})
+    });
+
     if (!payment) {
       return res.status(404).json({
         success: false,
@@ -194,28 +226,18 @@ export const deletePayment = async (req, res) => {
       });
     }
 
-    // Only admin or the user who created the payment can delete it
-    if (payment.userId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to delete this payment'
-      });
-    }
-
-    // Delete the screenshot from GridFS
     await deleteFileById(payment.screenshotId);
     
-    // Delete the payment document
-    await Payment.findByIdAndDelete(req.params.id);
+    await payment.deleteOne();
 
-    res.status(200).json({
+    res.json({
       success: true,
-      message: 'Payment and screenshot deleted successfully'
+      message: 'Payment deleted successfully'
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'An error occurred while deleting the payment',
+      message: 'Error deleting payment',
       error: error.message
     });
   }

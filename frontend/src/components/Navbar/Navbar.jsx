@@ -6,6 +6,7 @@ import { StoreContext } from "../../context/StoreContext";
 
 const Navbar = ({ setShowLogin }) => {
   const [menu, setMenu] = useState("Home");
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { getTotalCartAmount, token, setToken } = useContext(StoreContext);
   const navigate = useNavigate();
   const location = useLocation();
@@ -18,6 +19,7 @@ const Navbar = ({ setShowLogin }) => {
 
   const handleHomeClick = () => {
     setMenu("Home");
+    setIsMenuOpen(false);
     window.scrollTo({
       top: 0,
       behavior: 'smooth'
@@ -26,11 +28,16 @@ const Navbar = ({ setShowLogin }) => {
 
   const handleCartClick = (e) => {
     e.preventDefault();
+    setIsMenuOpen(false);
     window.scrollTo({
       top: 0,
       behavior: 'smooth'
     });
     navigate('/cart');
+  };
+
+  const toggleMenu = () => {
+    setIsMenuOpen(!isMenuOpen);
   };
 
   const handleScroll = () => {
@@ -41,7 +48,7 @@ const Navbar = ({ setShowLogin }) => {
     const sections = {
       'Home': { top: 0, bottom: document.getElementById('explore-menu')?.offsetTop || 1000 },
       'Menu': { 
-        top: document.getElementById('explore-menu').offsetTop || 1000, 
+        top: document.getElementById('explore-menu')?.offsetTop || 1000, 
         bottom: document.getElementById('gallery')?.offsetTop || 2000 
       },
       'Gallery': { 
@@ -80,7 +87,8 @@ const Navbar = ({ setShowLogin }) => {
         <Link to="/" onClick={handleHomeClick}>
           <img src={assets.logo} alt="" className="logo" />
         </Link>
-        <ul className="navbar-menu">
+
+        <ul className={`navbar-menu ${isMenuOpen ? 'show' : ''}`}>
           <a 
             href="#" 
             onClick={(e) => {
@@ -93,26 +101,36 @@ const Navbar = ({ setShowLogin }) => {
           </a>
           <a 
             href="/#explore-menu" 
-            onClick={() => setMenu("Menu")} 
+            onClick={() => {
+              setMenu("Menu");
+              setIsMenuOpen(false);
+            }} 
             className={menu === "Menu" ? "active" : ""}
           >
             Menu
           </a>
           <a 
             href="#gallery" 
-            onClick={() => setMenu("Gallery")} 
+            onClick={() => {
+              setMenu("Gallery");
+              setIsMenuOpen(false);
+            }} 
             className={menu === "Gallery" ? "active" : ""}
           >
             Gallery
           </a>
           <a 
             href="#footer" 
-            onClick={() => setMenu("Contact-Us")} 
+            onClick={() => {
+              setMenu("Contact-Us");
+              setIsMenuOpen(false);
+            }} 
             className={menu === "Contact-Us" ? "active" : ""}
           >
             Contact Us
           </a>
         </ul>
+
         <div className="navbar-right">
           <img src={assets.search_icon} alt="" />
           <div className="navbar-search-icon">
@@ -133,6 +151,12 @@ const Navbar = ({ setShowLogin }) => {
               </ul>
             </div>
           )}
+          {/* Menu Icon */}
+          <div className="menu-icon" onClick={toggleMenu}>
+            <div className={`menu-line ${isMenuOpen ? 'open' : ''}`}></div>
+            <div className={`menu-line ${isMenuOpen ? 'open' : ''}`}></div>
+            <div className={`menu-line ${isMenuOpen ? 'open' : ''}`}></div>
+          </div>
         </div>
       </div>
     </div>
